@@ -453,14 +453,13 @@ function renderQuestion(){
   });
 }
 
-async function submitAnswer(img, guess){
+function submitAnswer(img, guess){
   const correct = guess === img.truth;
   const record = {
     session: sessionId, imageId: img.id, truth: img.truth,
     guess, correct, ts: new Date().toISOString()
   };
-  try{ await postResponse(record); }
-  catch(e){ console.error('저장 실패', e); }
+  postResponse(record).catch(e => console.error('저장 실패', e)); // 기다리지 않고 뒤에서 처리 — 화면은 바로 다음으로 넘어감
   pos++;
   renderQuestion();
 }
