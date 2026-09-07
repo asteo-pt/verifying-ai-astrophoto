@@ -299,7 +299,7 @@ const ADMIN_PASSWORD = 'kt45181781+';
 
 /* 구글 Apps Script 웹앱 URL — 응답(O/X 클릭) 저장 전용. 사진은 더 이상
    이걸 거치지 않고 깃허브 리포에 직접 저장함 (아래 GitHub 관련 코드 참고). */
-const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw9zXKrovASOXH9-dKYDfKOPu1KuJPnf6dpN5HK4JuqbvP00-3xKZXn4mryZIUvmeU_cA/exec';
+const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyHoR4umf6EwRWx8TA_r22CG7jkehnCe6Ou9UA_FOQZLwPjZJDZ8VDQxOHyohPot1p7mw/exec';
 
 function sheetConfigured(){
   return SHEET_WEBAPP_URL && !SHEET_WEBAPP_URL.startsWith('PASTE_');
@@ -314,6 +314,17 @@ async function postResponse(record){
     mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(record)
+  });
+}
+
+/* 결과 전체 삭제 (관리자용). no-cors라 성공 여부는 확인 못 하고, 호출부에서 잠깐 기다렸다가 새로고침함. */
+async function clearAllResponses(){
+  if(!sheetConfigured()) throw new Error('아직 저장소가 연결되지 않았어요 (SHEET_WEBAPP_URL 미설정)');
+  await fetch(SHEET_WEBAPP_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ type: 'clearResponses' })
   });
 }
 
@@ -431,13 +442,13 @@ async function deleteImageFile(filename, message){
 }
 
 /* 새 사진 추가: 파일 커밋 + manifest.json 갱신 */
-async function addImage({ id, truth, mimeType, dataBase64 }){
+async function addImage({ id, truth, mimeType, dataBase64, originalName }){
   if(!githubToken) throw new Error('깃허브 토큰을 먼저 입력해주세요');
   const ext = (mimeType || 'image/jpeg').includes('png') ? 'png' : 'jpg';
   const filename = id + '.' + ext;
   await commitImageFile(filename, dataBase64, `사진 추가: ${filename}`);
   const list = await fetchManifest();
-  list.push({ id, file: filename, truth });
+  list.push({ id, file: filename, truth, originalName: originalName || '' });
   await commitManifest(list, `manifest 갱신: ${filename} 추가`);
 }
 
@@ -691,9 +702,9 @@ async function resizeImageFile(file){
 
 function summarize(responses, images){
   const byImage = {};
-  images.forEach(img => { byImage[img.id] = { id: img.id, truth: img.truth, shown:0, real:0, ai:0, correct:0 }; });
+  images.forEach(img => { byImage[img.id] = { id: img.id, name: img.originalName || img.id, truth: img.truth, shown:0, real:0, ai:0, correct:0 }; });
   responses.forEach(r=>{
-    if(!byImage[r.imageId]) byImage[r.imageId] = { id:r.imageId, truth:r.truth, shown:0, real:0, ai:0, correct:0 };
+    if(!byImage[r.imageId]) byImage[r.imageId] = { id:r.imageId, name: r.imageId, truth:r.truth, shown:0, real:0, ai:0, correct:0 };
     byImage[r.imageId].shown++;
     if(r.guess === 'REAL') byImage[r.imageId].real++;
     else if(r.guess === 'AI') byImage[r.imageId].ai++;
@@ -775,7 +786,7 @@ async function renderAdminPhotos(overlay){
   const rowsHTML = manifest.map(entry => `
     <div class="image-row" data-id="${entry.id}">
       <img src="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/images/${entry.file}" alt="">
-      <div class="meta">${entry.id}<br><span class="tag ${entry.truth}">${entry.truth === 'AI' ? 'AI 이미지' : '실제 사진'}</span></div>
+      <div class="meta">${entry.originalName || entry.id}<br><span class="tag ${entry.truth}">${entry.truth === 'AI' ? 'AI 이미지' : '실제 사진'}</span></div>
       <button data-del="${entry.id}">삭제</button>
     </div>
   `).join('');
@@ -830,7 +841,7 @@ async function renderAdminPhotos(overlay){
     try{
       const base64 = await resizeImageFile(file);
       const id = 'img_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-      await addImage({ id, truth, mimeType: 'image/jpeg', dataBase64: base64 });
+      await addImage({ id, truth, mimeType: 'image/jpeg', dataBase64: base64, originalName: file.name });
       await renderAdminPhotos(overlay);
     }catch(e){
       showUploadMsg((e && e.message) ? e.message : '업로드에 실패했어요. 토큰 권한을 확인해주세요.');
@@ -871,7 +882,7 @@ async function renderAdminPhotos(overlay){
 
 async function renderAdminResults(overlay){
   const manifest = await fetchManifest();
-  const imagesForSummary = manifest.length ? manifest.map(e=>({id:e.id, truth:e.truth})) : DEMO_IMAGES;
+  const imagesForSummary = manifest.length ? manifest.map(e=>({id:e.id, truth:e.truth, originalName:e.originalName})) : DEMO_IMAGES;
 
   let responses = [];
   let fetchError = null;
@@ -889,7 +900,7 @@ async function renderAdminResults(overlay){
 
   const rowsHTML = summary.map(s=>{
     const rate = s.shown ? Math.round((s.correct/s.shown)*1000)/10 : 0;
-    return `<tr><td>${s.id}</td><td>${s.truth === 'REAL' ? '진짜 사진' : 'AI 사진'}</td><td>${s.shown}</td><td>${s.real}</td><td>${s.ai}</td><td>${rate}%</td></tr>`;
+    return `<tr><td>${s.name}</td><td>${s.truth === 'REAL' ? '진짜 사진' : 'AI 사진'}</td><td>${s.shown}</td><td>${s.real}</td><td>${s.ai}</td><td>${rate}%</td></tr>`;
   }).join('');
 
   overlay.innerHTML = `
@@ -905,7 +916,7 @@ async function renderAdminResults(overlay){
       <div class="overall-stat">참여 세션 <b>${sessions}</b>개 · 총 응답 <b>${totalAnswers}</b>건</div>
       <div class="overall-stat">전체 정답률 <b>${overallRate}%</b></div>
       <table class="summary">
-        <thead><tr><th>이미지</th><th>실제로는</th><th>총 클릭수</th><th>O (진짜라고 답함)</th><th>X (AI라고 답함)</th><th>정답률</th></tr></thead>
+        <thead><tr><th>파일명</th><th>실제로는</th><th>총 클릭수</th><th>O (진짜라고 답함)</th><th>X (AI라고 답함)</th><th>정답률</th></tr></thead>
         <tbody>${rowsHTML || '<tr><td colspan="6">아직 응답이 없습니다</td></tr>'}</tbody>
       </table>
       <div class="admin-actions">
@@ -913,6 +924,7 @@ async function renderAdminResults(overlay){
         <button id="csvSummary">이미지별 요약 CSV</button>
         <button id="txtSummary">통계 텍스트 저장</button>
         <button id="refresh">새로고침</button>
+        <button id="clearResults" style="border-color:var(--danger); color:var(--danger);">결과 초기화</button>
       </div>
     </div>
   `;
@@ -924,13 +936,37 @@ async function renderAdminResults(overlay){
   };
   overlay.querySelector('#csvSummary').onclick = () => {
     const csv = toCSV(summary.map(s=>({
-      imageId:s.id, truth:s.truth, shown:s.shown, real:s.real, ai:s.ai, correct:s.correct,
+      imageId:s.id, filename:s.name, truth:s.truth, shown:s.shown, real:s.real, ai:s.ai, correct:s.correct,
       accuracy: s.shown ? Math.round((s.correct/s.shown)*1000)/10 + '%' : '0%'
-    })), ['imageId','truth','shown','real','ai','correct','accuracy']);
+    })), ['imageId','filename','truth','shown','real','ai','correct','accuracy']);
     downloadCSV(csv, 'astro_survey_summary.csv');
   };
   overlay.querySelector('#txtSummary').onclick = () => {
     downloadTXT(buildTXTReport(summary, sessions, totalAnswers, totalCorrect, overallRate), 'astro_survey_stats.txt');
+  };
+  const clearBtn = overlay.querySelector('#clearResults');
+  clearBtn.onclick = async () => {
+    if(clearBtn.dataset.confirming !== 'true'){
+      clearBtn.dataset.confirming = 'true';
+      clearBtn.textContent = '한번 더 누르면 전체 삭제';
+      setTimeout(() => {
+        if(clearBtn.dataset.confirming === 'true' && document.body.contains(clearBtn)){
+          clearBtn.dataset.confirming = 'false';
+          clearBtn.textContent = '결과 초기화';
+        }
+      }, 3000);
+      return;
+    }
+    clearBtn.disabled = true;
+    clearBtn.textContent = '삭제 중...';
+    try{
+      await clearAllResponses();
+      await new Promise(r => setTimeout(r, 1500)); // no-cors라 완료 확인이 안 돼서 잠깐 기다림
+      await renderAdminResults(overlay);
+    }catch(e){
+      clearBtn.disabled = false;
+      clearBtn.textContent = '결과 초기화';
+    }
   };
 }
 
@@ -941,7 +977,7 @@ function buildTXTReport(summary, sessions, totalAnswers, totalCorrect, overallRa
   lines.push(`참여 세션 수: ${sessions} · 총 응답 수: ${totalAnswers} · 전체 정답률: ${overallRate}%`);
   lines.push('');
   summary.forEach(s=>{
-    lines.push(`제목: ${s.id}`);
+    lines.push(`제목: ${s.name}`);
     lines.push(`정답: ${s.truth === 'AI' ? 'AI' : '사진'}`);
     lines.push(`AI득표수: ${s.ai}`);
     lines.push(`사진득표수: ${s.real}`);
