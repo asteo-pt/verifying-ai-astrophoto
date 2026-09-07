@@ -285,7 +285,7 @@
 <script>
 /* ============================================================
    전체 구조 지도 (디자인/기능 수정할 때 참고용)
-   1. 상수/설정        — ADMIN_PASSWORD, SHEET_WEBAPP_URL
+   1. 상수/설정        — SHEET_WEBAPP_URL (비밀번호는 이제 서버 쪽에만 있음)
    2. 응답 저장(Apps Script) — postResponse / fetchAllResponses
    2b. 사진 저장(GitHub API)  — fetchManifest / addImage / removeImage
    3. 데모 이미지 생성   — makeDemoImage, DEMO_IMAGES (사진 없을 때 대신 보여주는 별그림)
@@ -295,10 +295,10 @@
    "프레임(디자인)"만 바꾸고 싶으면 4번 함수들이 만드는 HTML 구조(innerHTML 템플릿)와
    위쪽 <style> 태그만 건드리면 됨 — 3·5·6번은 기능(로직)이라 안 건드려도 됨.
 ============================================================ */
-const ADMIN_PASSWORD = 'kt45181781+';
-
 /* 구글 Apps Script 웹앱 URL — 응답(O/X 클릭) 저장 전용. 사진은 더 이상
-   이걸 거치지 않고 깃허브 리포에 직접 저장함 (아래 GitHub 관련 코드 참고). */
+   이걸 거치지 않고 깃허브 리포에 직접 저장함 (아래 GitHub 관련 코드 참고).
+   관리자 비밀번호도 이 스크립트 쪽(Script Properties)에서 검증하기 때문에,
+   사이트 코드 어디에도 실제 비밀번호 문자열이 없음 — 소스보기해도 안 보임. */
 const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyHoR4umf6EwRWx8TA_r22CG7jkehnCe6Ou9UA_FOQZLwPjZJDZ8VDQxOHyohPot1p7mw/exec';
 
 function sheetConfigured(){
@@ -326,6 +326,15 @@ async function clearAllResponses(){
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ type: 'clearResponses' })
   });
+}
+
+/* 관리자 비밀번호 확인 — 실제 비교는 Apps Script(서버) 쪽에서 하고, 결과(true/false)만 받아옴 */
+async function checkAdminPassword(input){
+  if(!sheetConfigured()) throw new Error('아직 저장소가 연결되지 않았어요 (SHEET_WEBAPP_URL 미설정)');
+  const res = await fetch(SHEET_WEBAPP_URL + '?type=checkPassword&password=' + encodeURIComponent(input), { method: 'GET' });
+  if(!res.ok) throw new Error('확인 요청이 실패했어요 (' + res.status + ')');
+  const data = await res.json();
+  return !!data.ok;
 }
 
 /* 결과 조회: GET. Apps Script doGet은 전체 응답 로그를 JSON 배열로 반환. */
@@ -631,17 +640,32 @@ function showPasswordGate(){
   overlay.querySelector('#gateClose').onclick = () => { overlay.style.display = 'none'; };
   const pwInput = overlay.querySelector('#pwInput');
   const pwError = overlay.querySelector('#pwError');
-  const submit = () => {
-    if(pwInput.value === ADMIN_PASSWORD){
-      adminTab = 'photos';
-      openAdmin();
-    }else{
+  const pwSubmitBtn = overlay.querySelector('#pwSubmit');
+  const submit = async () => {
+    pwError.style.display = 'none';
+    pwSubmitBtn.disabled = true;
+    pwSubmitBtn.textContent = '확인 중...';
+    try{
+      const ok = await checkAdminPassword(pwInput.value);
+      if(ok){
+        adminTab = 'photos';
+        openAdmin();
+      }else{
+        pwError.textContent = '비밀번호가 틀렸습니다.';
+        pwError.style.display = 'block';
+        pwInput.value = '';
+        pwInput.focus();
+        pwSubmitBtn.disabled = false;
+        pwSubmitBtn.textContent = '입장';
+      }
+    }catch(e){
+      pwError.textContent = (e && e.message) ? e.message : '확인 중 오류가 발생했어요.';
       pwError.style.display = 'block';
-      pwInput.value = '';
-      pwInput.focus();
+      pwSubmitBtn.disabled = false;
+      pwSubmitBtn.textContent = '입장';
     }
   };
-  overlay.querySelector('#pwSubmit').onclick = submit;
+  pwSubmitBtn.onclick = submit;
   pwInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') submit(); });
   pwInput.focus();
 }
