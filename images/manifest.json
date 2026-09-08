@@ -3,5 +3,11 @@
     "id": "img_mtreljrj3y6t",
     "file": "img_mtreljrj3y6t.jpg",
     "truth": "REAL"
+  },
+  {
+    "id": "img_mtry3h9othbu",
+    "file": "img_mtry3h9othbu.jpg",
+    "truth": "AI",
+    "originalName": "7CC2104B-5B65-42FE-A4B9-F33E9F981BF1.png"
   }
 ]
