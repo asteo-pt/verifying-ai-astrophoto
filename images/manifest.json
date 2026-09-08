@@ -39,5 +39,11 @@
     "file": "img_mts08zlt8uzi.jpg",
     "truth": "REAL",
     "originalName": "112930.jpg"
+  },
+  {
+    "id": "img_mts0vww45c4d",
+    "file": "img_mts0vww45c4d.jpg",
+    "truth": "REAL",
+    "originalName": "109817.png"
   }
 ]
